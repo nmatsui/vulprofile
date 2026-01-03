@@ -162,10 +162,10 @@ class HttpResponse:
         self.headers = dict()
 
     def set_session_cookie(self, session_id):
-        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}={session_id}; Max-Age=3600; HttpOnly; SameSite=Lax; Path=/"
+        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}={session_id}; Max-Age=3600"
 
     def remove_session_cookie(self):
-        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/"
+        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}=; Max-Age=0"
 
     def __respond(self, status_code, content_type, body_text):
         self.handler.send_response(status_code)
