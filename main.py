@@ -28,7 +28,7 @@ login_html = """
           <th>ユーザー名</th><td><input type="text" id="username" name="username" required /></td>
         </tr>
         <tr>
-          <th>パスワード</th><td><input type="password" id="password" name="password" required /></td>
+          <th>パスワード</th><td><input type="text" id="password" name="password" required /></td>
         </tr>
       </table>
       <div>
@@ -61,7 +61,9 @@ register_html = """
         <span id="errors">{errors}</span>
       </div>
     </form>
-    <a href="/login">戻る</a>
+    <div>
+      <a href="/login">戻る</a>
+    </div>
 """
 
 profile_html = """
@@ -73,10 +75,36 @@ profile_html = """
         <th>プロフィール</th><td>{profile}</td>
       </tr>
     </table>
+    <div>
+      <a href="/update">更新</a>
+    </div>
     <form action="/logout" method="post">
       <input type="submit" id="logout" name="logout" value="ログアウト"/>
     </form>
 """
+
+update_html = """
+    <form action="/update" method="post">
+      <table>
+        <tr>
+            <th>ユーザー名</th><td>{username}</td>
+        </tr>
+        <tr>
+          <th>パスワード</th><td><input type="text" id="password" name="password" value="{password}" required /></td>
+        </tr>
+        <tr>
+          <th>プロフィール</th><td><input type="textarea" id="profile" name="profile" value="{profile}" /></td>
+        </tr>
+      </table>
+      <div>
+        <input type="submit" id="register" name="register" value="更新"/>
+      </div>
+    </form>
+    <div>
+      <a href="/profile">戻る</a>
+    </div>
+"""
+
 
 SESSIONS = dict()
 SESSION_ID = 1
@@ -134,18 +162,21 @@ class HttpResponse:
         self.headers = dict()
 
     def set_session_cookie(self, session_id):
-        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}={session_id}; HttpOnly; SameSite=Lax; Path=/"
+        self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}={session_id}; Max-Age=3600; HttpOnly; SameSite=Lax; Path=/"
 
     def remove_session_cookie(self):
         self.headers["Set-Cookie"] = f"{SESSION_ID_KEY}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/"
 
-    def ok_200(self, html, headers=None):
-        self.handler.send_response(200)
-        self.handler.send_header("Content-Type", "text/html; charset=utf-8")
+    def __respond(self, status_code, content_type, body_text):
+        self.handler.send_response(status_code)
+        self.handler.send_header("Content-Type", f"{content_type}; charset=utf-8")
         for k, v in self.headers.items():
             self.handler.send_header(k, v)
         self.handler.end_headers()
-        self.handler.wfile.write(html.encode())
+        self.handler.wfile.write(body_text.encode())
+
+    def ok_200(self, html, headers=None):
+        self.__respond(200, "text/html", html)
 
     def found_302(self, location):
         self.handler.send_response(302)
@@ -155,21 +186,18 @@ class HttpResponse:
         self.handler.end_headers()
 
     def bad_request_400(self):
-        self.handler.send_response(400)
-        self.handler.send_header("Content-Type", "text/plain; charset=utf-8")
-        for k, v in self.headers.items():
-            self.handler.send_header(k, v)
-        self.handler.end_headers()
-        self.handler.wfile.write("400 Bad Request".encode())
+        self.__respond(400, "text/plain", "400 Bad Request")
+
+    def unauthorized_401(self):
+        self.remove_session_cookie()
+        self.__respond(401, "text/plain", "401 Unauthorized")
 
     def not_found_404(self):
-        self.handler.send_response(404)
-        self.handler.send_header("Content-Type", "text/plain; charset=utf-8")
-        for k, v in self.headers.items():
-            self.handler.send_header(k, v)
-        self.handler.end_headers()
-        self.handler.wfile.write("404 Not Found".encode())
+        self.__respond(404, "text/plain", "404 Not Found")
 
+    def conflict_409(self):
+        self.remove_session_cookie()
+        self.__respond(409, "text/plain", "409 Conflict")
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -194,27 +222,51 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             case "/profile":
                 session = request.get_session()
-                if session:
-                    username = session.get("username")
-                    sql = f"SELECT username, profile \
-                            FROM users \
-                            WHERE username='{username}'"
-                    with sqlite3.connect(DBNAME) as conn:
-                        cur = conn.cursor()
-                        cur.execute(sql)
-                        record = cur.fetchone()
-
-                    if record:
-                        body = profile_html.format(username=username, profile=record[1])
-                        html = base_html.format(body=body)
-                        response.ok_200(html)
-                        return
-                    else:
-                        response.found_302("/login")
-                        return
-                else:
-                    response.found_302("/login")
+                if session is None or "username" not in session:
+                    response.unauthorized_401()
                     return
+
+                username = session.get("username")
+                sql = f"SELECT username, profile \
+                        FROM users \
+                        WHERE username='{username}'"
+                with sqlite3.connect(DBNAME) as conn:
+                    cur = conn.cursor()
+                    cur.execute(sql)
+                    record = cur.fetchone()
+
+                if not record:
+                    response.conflict_409()
+                    return
+
+                body = profile_html.format(username=username, profile=record[1])
+                html = base_html.format(body=body)
+                response.ok_200(html)
+                return
+
+            case "/update":
+                session = request.get_session()
+                if session is None or "username" not in session:
+                    response.unauthorized_401()
+                    return
+
+                username = session.get("username")
+                sql = f"SELECT username, password, profile \
+                        FROM users \
+                        WHERE username='{username}'"
+                with sqlite3.connect(DBNAME) as conn:
+                    cur = conn.cursor()
+                    cur.execute(sql)
+                    record = cur.fetchone()
+
+                if not record:
+                    response.conflict_409()
+                    return
+
+                body = update_html.format(username=username, password=record[1], profile=record[2])
+                html = base_html.format(body=body)
+                response.ok_200(html)
+                return
 
             case _:
                 response.not_found_404()
@@ -241,18 +293,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                     cur.execute(sql)
                     record = cur.fetchone()
 
-                if record[0] == 1:
-                    session_id = request.new_session({
-                        "username": username,
-                    })
-                    response.set_session_cookie(session_id)
-                    response.found_302("/profile")
-                    return
-                else:
+                if record[0] == 0:
                     body = login_html.format(errors=f"ユーザー名({username})かパスワードが間違っています")
                     html = base_html.format(body=body)
                     response.ok_200(html)
                     return
+
+                session_id = request.new_session({
+                    "username": username,
+                })
+                response.set_session_cookie(session_id)
+                response.found_302("/profile")
+                return
 
             case "/register":
                 params = request.parse_body()
@@ -278,17 +330,57 @@ class RequestHandler(BaseHTTPRequestHandler):
                     html = base_html.format(body=body)
                     response.ok_200(html)
                     return
-                else:
-                    sql = f"INSERT INTO users (username, password, profile) \
-                            VALUES ('{username}', '{password}', '{profile}')"
 
-                    with sqlite3.connect(DBNAME) as conn:
-                        cur = conn.cursor()
-                        cur.execute(sql)
-                        conn.commit()
+                sql = f"INSERT INTO users (username, password, profile) \
+                        VALUES ('{username}', '{password}', '{profile}')"
 
-                    response.found_302("/login")
+                with sqlite3.connect(DBNAME) as conn:
+                    cur = conn.cursor()
+                    cur.execute(sql)
+                    conn.commit()
+
+                response.found_302("/login")
+                return
+
+            case "/update":
+                session = request.get_session()
+                if session is None or "username" not in session:
+                    response.unauthorized_401()
                     return
+
+                username = session.get("username")
+                sql = f"SELECT count(*) \
+                        FROM users \
+                        WHERE username='{username}'"
+
+                with sqlite3.connect(DBNAME) as conn:
+                    cur = conn.cursor()
+                    cur.execute(sql)
+                    record = cur.fetchone()
+
+                if record[0] != 1:
+                    response.conflict_409()
+                    return
+
+                params = request.parse_body()
+                if params is None or "password" not in params or "profile" not in params:
+                    response.bad_request_400()
+                    return
+
+                password = params["password"][0]
+                profile = params["profile"][0]
+
+                sql = f"UPDATE users \
+                        SET password='{password}', profile='{profile}' \
+                        WHERE username='{username}'"
+
+                with sqlite3.connect(DBNAME) as conn:
+                    cur = conn.cursor()
+                    cur.execute(sql)
+                    conn.commit()
+
+                response.found_302("/profile")
+                return
 
             case "/logout":
                 request.remove_session()
