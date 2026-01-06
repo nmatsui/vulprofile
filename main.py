@@ -6,6 +6,7 @@ from urllib.parse import urlparse, parse_qs
 DBNAME = "db.sqlite3"
 server_address = "http://localhost:8000"
 
+
 base_html = """
 <!DOCTYPE html>
 <html lang="ja">
@@ -198,6 +199,7 @@ class HttpResponse:
     def conflict_409(self):
         self.remove_session_cookie()
         self.__respond(409, "text/plain", "409 Conflict")
+
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
