@@ -25,4 +25,4 @@
 4. ブラウザから http://localhost:8000 へアクセスする
 
 # License
-"VulProfile" is under [MIT license]()
+"VulProfile" is under [MIT license](LICENSE)
