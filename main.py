@@ -1,10 +1,29 @@
 import sqlite3
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 DBNAME = "db.sqlite3"
+DB_TIMEOUT = 30.0  # ロック競合時に他スレッドの解放を待つ秒数
 server_address = "http://localhost:8000"
+
+
+@contextmanager
+def get_connection():
+    conn = None
+    try:
+        conn = sqlite3.connect(DBNAME, timeout=DB_TIMEOUT, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        yield conn
+        conn.commit()
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 base_html = """
@@ -232,7 +251,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 sql = f"SELECT username, profile \
                         FROM users \
                         WHERE username='{username}'"
-                with sqlite3.connect(DBNAME) as conn:
+                with get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute(sql)
                     record = cur.fetchone()
@@ -256,7 +275,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 sql = f"SELECT username, password, profile \
                         FROM users \
                         WHERE username='{username}'"
-                with sqlite3.connect(DBNAME) as conn:
+                with get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute(sql)
                     record = cur.fetchone()
@@ -290,7 +309,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         FROM users \
                         WHERE username='{username}' AND password='{password}'"
 
-                with sqlite3.connect(DBNAME) as conn:
+                with get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute(sql)
                     record = cur.fetchone()
@@ -318,28 +337,29 @@ class RequestHandler(BaseHTTPRequestHandler):
                 password = params["password"][0]
                 profile = params["profile"][0]
 
-                sql = f"SELECT count(*) \
-                        FROM users \
-                        WHERE username='{username}'"
+                check_sql = f"SELECT count(*) \
+                              FROM users \
+                              WHERE username='{username}'"
+                insert_sql = f"INSERT INTO users (username, password, profile) \
+                               VALUES ('{username}', '{password}', '{profile}')"
 
-                with sqlite3.connect(DBNAME) as conn:
-                    cur = conn.cursor()
-                    cur.execute(sql)
-                    record = cur.fetchone()
+                duplicated = False
+                try:
+                    with get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute(check_sql)
+                        if cur.fetchone()[0] == 1:
+                            duplicated = True
+                        else:
+                            cur.execute(insert_sql)
+                except sqlite3.IntegrityError:
+                    duplicated = True
 
-                if record[0] == 1:
+                if duplicated:
                     body = register_html.format(errors=f"ユーザー名({username})は既に登録されています")
                     html = base_html.format(body=body)
                     response.ok_200(html)
                     return
-
-                sql = f"INSERT INTO users (username, password, profile) \
-                        VALUES ('{username}', '{password}', '{profile}')"
-
-                with sqlite3.connect(DBNAME) as conn:
-                    cur = conn.cursor()
-                    cur.execute(sql)
-                    conn.commit()
 
                 response.found_302("/login")
                 return
@@ -355,7 +375,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         FROM users \
                         WHERE username='{username}'"
 
-                with sqlite3.connect(DBNAME) as conn:
+                with get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute(sql)
                     record = cur.fetchone()
@@ -376,10 +396,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                         SET password='{password}', profile='{profile}' \
                         WHERE username='{username}'"
 
-                with sqlite3.connect(DBNAME) as conn:
+                with get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute(sql)
-                    conn.commit()
 
                 response.found_302("/profile")
                 return
@@ -396,7 +415,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    with HTTPServer(('0.0.0.0', 8000), RequestHandler) as server:
+    with ThreadingHTTPServer(('0.0.0.0', 8000), RequestHandler) as server:
         print(f"Starting server at {server_address}")
         try:
             server.serve_forever()
