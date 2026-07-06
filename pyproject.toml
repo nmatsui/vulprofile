@@ -1,16 +1,7 @@
 [project]
 name = "vulprofile"
 version = "0.1.0"
-description = ""
-authors = [
-    {name = "Nobuyuki Matsui",email = "nobuyuki.matsui@gmail.com"}
-]
+description = "A Python web application intentionally containing multiple vulnerabilities, designed for learning purposes. Do not use in production."
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-]
-
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires-python = ">=3.14"
+dependencies = []
